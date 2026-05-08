@@ -1,0 +1,12 @@
+{
+  "presets": [
+    {
+      "name": "MyProject",
+      "cwd": "C:\\path\\to\\your\\project"
+    },
+    {
+      "name": "AnotherOne",
+      "cwd": "/home/user/code/another"
+    }
+  ]
+}

@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>Claude Terminal</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 상단 바 -->
+  <header id="header">
+    <div class="header-left">
+      <span class="logo">Claude Terminal</span>
+    </div>
+    <div class="header-center">
+      <button id="btnAddTerminal" class="btn btn-add" title="빈 터미널 추가">+ Terminal</button>
+      <div class="preset-dropdown">
+        <button id="btnPreset" class="btn btn-preset" title="프리셋으로 열기">Preset ▾</button>
+        <div id="presetMenu" class="preset-menu hidden"></div>
+      </div>
+      <button id="btnSettings" class="btn btn-settings" title="프리셋 설정">Settings</button>
+      <button id="btnClipboard" class="btn btn-clipboard" title="클립보드 메모장 보기">📋 Clipboard</button>
+    </div>
+    <div class="header-right">
+      <span id="termCount" class="term-count"></span>
+    </div>
+  </header>
+
+  <!-- 터미널 패널 영역 -->
+  <main id="panels"></main>
+
+  <!-- 프리셋 설정 모달 -->
+  <div id="settingsModal" class="modal hidden">
+    <div class="modal-content">
+      <h2>Preset Settings</h2>
+      <div id="presetList"></div>
+      <button id="btnAddPreset" class="btn btn-add">+ Add Preset</button>
+      <div class="modal-actions">
+        <button id="btnSavePresets" class="btn btn-primary">Save</button>
+        <button id="btnCloseModal" class="btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 클립보드 모달 -->
+  <div id="clipboardModal" class="modal hidden">
+    <div class="modal-content modal-clipboard">
+      <div class="clipboard-header">
+        <h2>📋 Clipboard <span class="clipboard-path">D:\claude-terminal\clipboard\clipboard.md</span></h2>
+        <span id="clipboardMtime" class="clipboard-mtime"></span>
+      </div>
+      <textarea id="clipboardContent" placeholder="(비어있음) — 패널 헤더의 📥 버튼으로 마지막 답변을 자동 캡처하거나, claude 에게 '복붙용으로 파일에 써줘' 라고 요청하세요"></textarea>
+      <div class="modal-actions">
+        <button id="btnClipboardSave" class="btn btn-primary" title="현재 textarea 내용을 clipboard.md 에 저장 (덮어쓰기)">💾 Save to File</button>
+        <button id="btnClipboardCopy" class="btn">Copy All</button>
+        <button id="btnClipboardReload" class="btn" title="파일에서 다시 읽기 (편집 내용 버려짐)">↻ Reload</button>
+        <button id="btnClipboardClear" class="btn">Clear</button>
+        <button id="btnClipboardClose" class="btn">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 도구 선택 팝업 -->
+  <div id="toolChoiceModal" class="modal hidden">
+    <div class="modal-content modal-small">
+      <h2>도구 선택 <span id="toolChoicePresetName" class="preset-badge"></span></h2>
+      <div class="tool-choice-grid">
+        <button class="tool-choice-btn" data-tool="claude">
+          <div class="tool-choice-name">Claude Code</div>
+          <div class="tool-choice-sub">claude</div>
+        </button>
+        <button class="tool-choice-btn" data-tool="codex">
+          <div class="tool-choice-name">Codex</div>
+          <div class="tool-choice-sub">codex</div>
+        </button>
+        <button class="tool-choice-btn" data-tool="none">
+          <div class="tool-choice-name">Shell</div>
+          <div class="tool-choice-sub">powershell</div>
+        </button>
+      </div>
+      <div class="modal-actions">
+        <button id="btnCancelToolChoice" class="btn">Cancel</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
