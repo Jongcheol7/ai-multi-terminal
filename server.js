@@ -3,15 +3,25 @@ const expressWs = require('express-ws');
 const pty = require('node-pty');
 const path = require('path');
 const fs = require('fs');
-const { Terminal: HeadlessTerminal } = require('@xterm/headless');
+const os = require('os');
+const { createSessionStore } = require('./terminal-sessions');
 
-const PORT = 3900;
+const PORT = Number(process.env.PORT) || 3900;
 
 const app = express();
-expressWs(app);
+const websocketSupport = expressWs(app);
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json({ limit: '5mb' }));
+const vendorAssets = {
+  'xterm.js': '@xterm/xterm/lib/xterm.js',
+  'xterm.css': '@xterm/xterm/css/xterm.css',
+  'addon-fit.js': '@xterm/addon-fit/lib/addon-fit.js',
+  'addon-web-links.js': '@xterm/addon-web-links/lib/addon-web-links.js'
+};
+for (const [filename, relativePath] of Object.entries(vendorAssets)) {
+  app.get(`/vendor/${filename}`, (req, res) => res.sendFile(path.join(__dirname, 'node_modules', relativePath)));
+}
 
 // 클립보드 (빈 메모장) 단일 파일
 const CLIPBOARD_DIR = path.join(__dirname, 'clipboard');
@@ -99,21 +109,52 @@ function loadConfig() {
   return { presets: [] };
 }
 function saveConfig(config) {
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+  fs.writeFileSync(configPath + '.tmp', JSON.stringify(config, null, 2), 'utf8');
+  fs.renameSync(configPath + '.tmp', configPath);
 }
 app.get('/api/presets', (req, res) => {
-  res.json(loadConfig().presets);
+  try { res.json(loadConfig().presets || []); }
+  catch (error) { res.status(500).json({ error: `프리셋을 읽지 못했습니다: ${error.message}` }); }
 });
 app.post('/api/presets', (req, res) => {
-  const config = loadConfig();
-  config.presets = req.body.presets;
-  saveConfig(config);
-  res.json({ ok: true });
+  const presets = req.body?.presets;
+  if (!Array.isArray(presets) || presets.some(p => !p || typeof p.name !== 'string' || !p.name.trim() || typeof p.cwd !== 'string' || !p.cwd.trim())) {
+    return res.status(400).json({ error: '모든 프리셋에 이름과 작업 폴더를 입력해 주세요.' });
+  }
+  try {
+    const config = loadConfig();
+    config.presets = presets.map(p => ({ name: p.name.trim(), cwd: p.cwd.trim() }));
+    saveConfig(config);
+    res.json({ ok: true });
+  } catch (error) { res.status(500).json({ error: `프리셋 저장 실패: ${error.message}` }); }
 });
 
 // ========== 가상 터미널(헤드리스) 세션 관리 ==========
-let nextSessionId = 1;
-const sessions = new Map(); // sessionId → { pty, headless, tool }
+const sessionStore = createSessionStore({
+  storageDirectory: path.join(__dirname, '.local', 'sessions'),
+  windowsPty: process.platform === 'win32' ? { backend: 'conpty', buildNumber: Number(os.release().split('.')[2]) } : undefined,
+  spawn(cwd) {
+    const childEnv = { ...process.env };
+    delete childEnv.PORT;
+    return pty.spawn(process.platform === 'win32' ? 'powershell.exe' : 'bash', [], {
+      name: 'xterm-256color', cols: 120, rows: 30, cwd, env: childEnv
+    });
+  }
+});
+const sessions = sessionStore.sessions;
+app.get('/api/sessions', (req, res) => res.json(sessionStore.list()));
+app.post('/api/sessions/:sessionId/close', async (req, res) => {
+  try { await sessionStore.close(req.params.sessionId); res.json({ ok: true }); }
+  catch (error) { res.status(500).json({ error: error.message }); }
+});
+app.post('/api/sessions/:sessionId/title', (req, res) => {
+  try { res.json(sessionStore.rename(req.params.sessionId, req.body.title)); }
+  catch (error) { res.status(400).json({ error: error.message }); }
+});
+app.post('/api/sessions/:sessionId/delete', async (req, res) => {
+  try { await sessionStore.remove(req.params.sessionId); res.json({ ok: true }); }
+  catch (error) { res.status(500).json({ error: error.message }); }
+});
 
 // 마지막 사용자 프롬프트 다음부터 끝까지 추출
 function captureLastResponse(headless, fallbackLines = 100) {
@@ -231,69 +272,31 @@ app.post('/api/clipboard/capture', (req, res) => {
 
 // WebSocket: 터미널 세션
 app.ws('/ws/terminal', (ws, req) => {
-  const sessionId = String(nextSessionId++);
-  const cwd = req.query.cwd || process.cwd();
-  let tool = (req.query.tool || '').toLowerCase();
-  if (!tool && req.query.claude === 'true') tool = 'claude';
-
-  const shell = process.platform === 'win32' ? 'powershell.exe' : 'bash';
-  const term = pty.spawn(shell, [], {
-    name: 'xterm-256color',
-    cols: 120,
-    rows: 30,
-    cwd: cwd,
-    env: process.env
-  });
-
-  const headless = new HeadlessTerminal({
-    cols: 120,
-    rows: 30,
-    scrollback: 5000,
-    allowProposedApi: true
-  });
-
-  sessions.set(sessionId, { pty: term, headless, tool });
-
-  // 클라이언트에 sessionId 알림
-  try {
-    ws.send(JSON.stringify({ type: 'session', sessionId }));
-  } catch (e) { /* ignore */ }
-
-  // claude / codex 자동 실행
-  if (tool === 'claude' || tool === 'codex') {
-    setTimeout(() => {
-      const command = tool === 'codex' ? 'codex --no-alt-screen' : tool;
-      term.write(`${command}\r`);
-    }, 500);
-  }
-
-  term.onData((data) => {
-    try { headless.write(data); } catch (e) { /* ignore */ }
-    try { ws.send(JSON.stringify({ type: 'output', data })); } catch (e) { /* ws closed */ }
-  });
-
-  term.onExit(() => {
-    try { ws.send(JSON.stringify({ type: 'exit' })); } catch (e) { /* ws closed */ }
-  });
-
-  ws.on('message', (msg) => {
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
+  ws.on('message', raw => {
     try {
-      const parsed = JSON.parse(msg);
-      if (parsed.type === 'input') {
-        term.write(parsed.data);
-      } else if (parsed.type === 'resize') {
-        term.resize(parsed.cols, parsed.rows);
-        try { headless.resize(parsed.cols, parsed.rows); } catch (e) { /* ignore */ }
-      }
-    } catch (e) { /* ignore */ }
+      const message = JSON.parse(raw);
+      if (message.type === 'ping' && ws.readyState === 1) ws.send(JSON.stringify({ type: 'pong', requestId: message.requestId }));
+    } catch (_) { /* input validation is handled by the session store */ }
   });
-
-  ws.on('close', () => {
-    sessions.delete(sessionId);
-    try { term.kill(); } catch (e) { /* ignore */ }
-    try { headless.dispose(); } catch (e) { /* ignore */ }
+  sessionStore.connect(ws, {
+    id: req.query.sessionId,
+    create: !req.query.sessionId || req.query.create === '1',
+    cwd: typeof req.query.cwd === 'string' ? req.query.cwd : process.cwd(),
+    name: typeof req.query.name === 'string' ? req.query.name : 'Terminal',
+    tool: String(req.query.tool || (req.query.claude === 'true' ? 'claude' : 'none')).toLowerCase()
   });
 });
+
+const heartbeat = setInterval(() => {
+  for (const socket of websocketSupport.getWss().clients) {
+    if (socket.isAlive === false) { socket.terminate(); continue; }
+    socket.isAlive = false;
+    try { socket.ping(); } catch (_) { socket.terminate(); }
+  }
+}, 30000);
+heartbeat.unref();
 
 const server = app.listen(PORT, () => {
   console.log(`Claude Terminal running at http://localhost:${PORT}`);

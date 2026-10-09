@@ -2,21 +2,27 @@
 <html lang="ko">
 <head>
   <meta charset="UTF-8">
-  <title>Claude Terminal</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Terminal</title>
+  <link rel="stylesheet" href="/vendor/xterm.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <!-- 상단 바 -->
   <header id="header">
     <div class="header-left">
-      <span class="logo">Claude Terminal</span>
+      <span class="logo">AI Terminal</span>
     </div>
+    <button id="btnCommands" class="command-launcher" title="명령 검색 (Ctrl+Shift+P)"><span>명령 또는 프로젝트 검색</span><kbd>Ctrl Shift P</kbd></button>
     <div class="header-center">
+      <button id="btnProjects" class="btn" aria-expanded="true" aria-controls="projectSidebar">목록 접기</button>
       <button id="btnAddTerminal" class="btn btn-add" title="빈 터미널 추가">+ Terminal</button>
       <div class="preset-dropdown">
-        <button id="btnPreset" class="btn btn-preset" title="프리셋으로 열기">Preset ▾</button>
-        <div id="presetMenu" class="preset-menu hidden"></div>
+        <button id="btnPreset" class="btn btn-preset" title="프리셋으로 열기" aria-expanded="false" aria-controls="presetMenu">Preset ▾</button>
+        <div id="presetMenu" class="preset-menu hidden">
+          <div class="preset-search-wrap"><input id="presetSearch" type="search" placeholder="프로젝트 이름·폴더 검색" aria-label="프로젝트 검색" autocomplete="off"></div>
+          <div id="presetResults" class="preset-results"></div>
+        </div>
       </div>
       <button id="btnSettings" class="btn btn-settings" title="프리셋 설정">Settings</button>
       <button id="btnClipboard" class="btn btn-clipboard" title="클립보드 메모장 보기">📋 Clipboard</button>
@@ -26,14 +32,64 @@
     </div>
   </header>
 
-  <!-- 터미널 패널 영역 -->
-  <main id="panels"></main>
+  <div id="workbench">
+  <nav id="activityBar" aria-label="작업 메뉴">
+    <button id="activitySessions" class="activity-button active" title="세션 목록" aria-label="세션 목록"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v12H9l-5 4V4Z"/><path d="M8 8h8M8 12h5"/></svg></button>
+    <button id="activityProjects" class="activity-button" title="프로젝트" aria-label="프로젝트"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h7l2 2h9v12H3V6Z"/><path d="M3 6V4h7l2 2"/></svg></button>
+    <button id="activityCommands" class="activity-button" title="명령 검색" aria-label="명령 검색"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6"/></svg></button>
+    <div class="activity-spacer"></div>
+    <button id="activityClipboard" class="activity-button" title="클립보드" aria-label="클립보드"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4H4v17h14v-4M8 2h13v14H8z"/></svg></button>
+    <button id="activitySettings" class="activity-button" title="설정" aria-label="설정">⚙</button>
+  </nav>
+  <aside id="projectSidebar" aria-label="프로젝트 탐색">
+    <div class="sidebar-heading">
+      <span id="sidebarTitle">프로젝트와 세션</span>
+      <div class="sidebar-heading-actions">
+        <button id="btnSidebarSettings" class="panel-btn" title="프로젝트 설정" aria-label="프로젝트 설정">⚙</button>
+        <button id="btnCollapseSidebar" class="sidebar-collapse" title="왼쪽 목록 접기" aria-label="왼쪽 목록 접기" aria-controls="projectSidebar"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m10 3-5 5 5 5"/></svg>접기</button>
+      </div>
+    </div>
+    <div class="sidebar-view-controls">
+      <button id="btnSidebarSessions" class="btn" aria-pressed="true">세션</button>
+      <button id="btnSidebarProjects" class="btn" aria-pressed="false">프로젝트</button>
+      <button id="btnToggleSessionGroups" class="btn" aria-controls="projectResults" title="모든 프로젝트 접기">모두 접기</button>
+      <button id="btnRefreshSessions" class="panel-btn" title="목록 새로고침" aria-label="목록 새로고침">↻</button>
+    </div>
+    <input id="projectSearch" type="search" placeholder="프로젝트·세션 검색" aria-label="프로젝트·세션 검색" autocomplete="off">
+    <p id="sessionListError" class="inline-error hidden" role="status"></p>
+    <div id="projectResults" class="project-results"></div>
+    <p class="sidebar-tip">+ 새 세션 · 탭 ×는 화면만 닫기<br>세션 기록은 이 PC에 보관됩니다.</p>
+  </aside>
+  <section id="workspace" aria-label="터미널 작업 공간">
+  <nav id="workspaceToolbar" aria-label="터미널 화면 배치">
+    <div class="layout-controls">
+      <button id="btnLayoutColumns" class="btn" aria-pressed="true">가로 분할</button>
+      <button id="btnLayoutGrid" class="btn" aria-pressed="false">2×2 배치</button>
+      <button id="btnLayoutFocus" class="btn" aria-pressed="false">선택 패널 확대</button>
+    </div>
+    <span id="activeSessionLabel" class="active-session-label"></span>
+    <span id="workspaceHint">프로젝트를 선택해 터미널을 열어 주세요.</span>
+  </nav>
+  <div id="sessionTabs" class="session-tabs" role="tablist" aria-label="열린 터미널"></div>
+  <main id="panels">
+    <div id="emptyWorkspace" class="workspace-empty">
+      <div class="empty-symbol" aria-hidden="true">⌘</div>
+      <h1>프로젝트에서 작업을 시작하세요</h1>
+      <p>왼쪽에서 프로젝트를 찾고 Claude·Codex·Shell을 선택하세요.</p>
+      <div class="empty-actions"><button id="btnEmptyPreset" class="btn btn-primary">프로젝트 선택</button><button id="btnEmptyShell" class="btn">빈 터미널 열기</button></div>
+      <p class="empty-note">입력 초안과 전송 기록은 이 브라우저에 보관됩니다.</p>
+    </div>
+  </main>
+  </section>
+  </div>
+  <footer id="statusBar"><span class="status-local">◉ 로컬</span><span id="statusConnection">준비됨</span><span id="statusProject"></span><span id="statusSummary">열린 세션 없음</span><button id="btnStatusCommands">Ctrl+Shift+P 명령</button></footer>
 
   <!-- 프리셋 설정 모달 -->
   <div id="settingsModal" class="modal hidden">
     <div class="modal-content">
       <h2>Preset Settings</h2>
       <div id="presetList"></div>
+      <p id="settingsError" class="inline-error hidden" role="alert"></p>
       <button id="btnAddPreset" class="btn btn-add">+ Add Preset</button>
       <div class="modal-actions">
         <button id="btnSavePresets" class="btn btn-primary">Save</button>
@@ -46,10 +102,11 @@
   <div id="clipboardModal" class="modal hidden">
     <div class="modal-content modal-clipboard">
       <div class="clipboard-header">
-        <h2>📋 Clipboard <span class="clipboard-path">D:\claude-terminal\clipboard\clipboard.md</span></h2>
+        <h2>📋 Clipboard <span class="clipboard-path">clipboard/clipboard.md</span></h2>
         <span id="clipboardMtime" class="clipboard-mtime"></span>
       </div>
       <textarea id="clipboardContent" placeholder="(비어있음) — 패널 헤더의 📥 버튼으로 마지막 답변을 자동 캡처하거나, claude 에게 '복붙용으로 파일에 써줘' 라고 요청하세요"></textarea>
+      <p id="clipboardError" class="inline-error hidden" role="alert"></p>
       <div class="modal-actions">
         <button id="btnClipboardSave" class="btn btn-primary" title="현재 textarea 내용을 clipboard.md 에 저장 (덮어쓰기)">💾 Save to File</button>
         <button id="btnClipboardCopy" class="btn">Copy All</button>
@@ -57,6 +114,55 @@
         <button id="btnClipboardClear" class="btn">Clear</button>
         <button id="btnClipboardClose" class="btn">Close</button>
       </div>
+    </div>
+  </div>
+
+  <div id="actionModal" class="modal hidden">
+    <div class="modal-content modal-small">
+      <h2 id="actionTitle"></h2>
+      <p id="actionMessage" class="dialog-message"></p>
+      <p id="actionError" class="inline-error hidden" role="alert"></p>
+      <div class="modal-actions">
+        <button id="actionCancel" class="btn">취소</button>
+        <button id="actionConfirm" class="btn btn-primary">확인</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="historyModal" class="modal hidden">
+    <div class="modal-content modal-history">
+      <h2 id="historyTitle">최근 전송</h2>
+      <p class="dialog-message">내용을 선택하면 입력창에 불러옵니다. 자동으로 전송하지 않습니다.</p>
+      <div id="historyList"></div>
+      <div class="modal-actions">
+        <button id="btnClearHistory" class="btn">기록 지우기</button>
+        <button id="btnCloseHistory" class="btn">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="sessionDetailsModal" class="modal hidden">
+    <div class="modal-content modal-small">
+      <h2>세션 관리</h2>
+      <label class="field-label" for="sessionTitleInput">세션 이름</label>
+      <input id="sessionTitleInput" class="text-field" maxlength="120" autocomplete="off">
+      <p id="sessionDetailsInfo" class="dialog-message"></p>
+      <p id="sessionDetailsError" class="inline-error hidden" role="alert"></p>
+      <div class="modal-actions">
+        <button id="btnDeleteSession" class="btn btn-danger">기록 삭제</button>
+        <button id="btnEndSession" class="btn">터미널 종료</button>
+        <button id="btnSaveSessionTitle" class="btn btn-primary">이름 저장</button>
+        <button id="btnCloseSessionDetails" class="btn">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="commandModal" class="modal hidden">
+    <div class="modal-content command-palette">
+      <h2 class="sr-only">명령 검색</h2>
+      <div class="command-search-row"><input id="commandSearch" class="text-field" placeholder="명령, 프로젝트, 세션 검색" aria-label="명령 검색" autocomplete="off"><button id="btnCloseCommands" class="panel-btn" title="닫기" aria-label="명령 검색 닫기">×</button></div>
+      <div id="commandResults"></div>
+      <p class="command-help">↑ ↓ 이동 · Enter 실행 · Esc 닫기</p>
     </div>
   </div>
 
@@ -73,6 +179,10 @@
           <div class="tool-choice-name">Codex</div>
           <div class="tool-choice-sub">codex</div>
         </button>
+        <button class="tool-choice-btn" data-tool="agy">
+          <div class="tool-choice-name">Antigravity</div>
+          <div class="tool-choice-sub">agy</div>
+        </button>
         <button class="tool-choice-btn" data-tool="none">
           <div class="tool-choice-name">Shell</div>
           <div class="tool-choice-sub">powershell</div>
@@ -84,9 +194,11 @@
     </div>
   </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.min.js"></script>
+  <script src="/vendor/xterm.js"></script>
+  <script src="/vendor/addon-fit.js"></script>
+  <script src="/vendor/addon-web-links.js"></script>
+  <script src="ui.js"></script>
+  <script src="terminal-selection.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
